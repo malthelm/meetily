@@ -719,13 +719,14 @@ async fn create_meeting_with_transcripts(
     // Insert transcripts
     for segment in segments {
         sqlx::query(
-            "INSERT INTO transcripts (id, meeting_id, transcript, timestamp, audio_start_time, audio_end_time, duration)
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO transcripts (id, meeting_id, transcript, timestamp, speaker_label, audio_start_time, audio_end_time, duration)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&segment.id)
         .bind(&meeting_id)
         .bind(&segment.text)
         .bind(&segment.timestamp)
+        .bind(&segment.speaker_label)
         .bind(segment.audio_start_time)
         .bind(segment.audio_end_time)
         .bind(segment.duration)
@@ -1178,6 +1179,7 @@ mod tests {
                 id: "t-1".to_string(),
                 text: "Hello world".to_string(),
                 timestamp: "2024-01-01T00:00:00Z".to_string(),
+                speaker_label: None,
                 audio_start_time: Some(0.0),
                 audio_end_time: Some(1.5),
                 duration: Some(1.5),
@@ -1186,6 +1188,7 @@ mod tests {
                 id: "t-2".to_string(),
                 text: "Second segment".to_string(),
                 timestamp: "2024-01-01T00:00:01Z".to_string(),
+                speaker_label: Some("SPEAKER_00".to_string()),
                 audio_start_time: Some(2.0),
                 audio_end_time: Some(3.5),
                 duration: Some(1.5),
