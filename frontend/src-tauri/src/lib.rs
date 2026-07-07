@@ -748,6 +748,9 @@ pub fn run() {
             audio::import::start_import_audio_command,
             audio::import::cancel_import_command,
             audio::import::is_import_in_progress_command,
+            audio::phone_upload::start_phone_upload_server_command,
+            audio::phone_upload::stop_phone_upload_server_command,
+            audio::phone_upload::get_phone_upload_server_status_command,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

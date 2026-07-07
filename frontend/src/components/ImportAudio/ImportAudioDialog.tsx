@@ -12,7 +12,11 @@ import {
   HardDrive,
   ChevronDown,
   ChevronUp,
+  Smartphone,
+  Copy,
 } from 'lucide-react';
+import { invoke } from '@tauri-apps/api/core';
+import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import {
   Dialog,
   DialogContent,
@@ -44,6 +48,21 @@ interface ImportAudioDialogProps {
   onOpenChange: (open: boolean) => void;
   preselectedFile?: string | null;
   onComplete?: () => void;
+}
+
+interface PhoneUploadServerStatus {
+  running: boolean;
+  port?: number | null;
+  upload_url?: string | null;
+  local_url?: string | null;
+  upload_dir: string;
+}
+
+interface PhoneUploadReceived {
+  path: string;
+  filename: string;
+  title: string;
+  size_bytes: number;
 }
 
 function formatDuration(seconds: number): string {
@@ -78,6 +97,8 @@ export function ImportAudioDialog({
   const [selectedLang, setSelectedLang] = useState(selectedLanguage || 'auto');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [titleModifiedByUser, setTitleModifiedByUser] = useState(false);
+  const [phoneUploadStatus, setPhoneUploadStatus] = useState<PhoneUploadServerStatus | null>(null);
+  const [phoneUploadStarting, setPhoneUploadStarting] = useState(false);
 
   // Always start as false — represents "dialog has not yet been opened".
   // Do NOT initialize from the `open` prop: if the component mounts with open=true
@@ -161,6 +182,35 @@ export function ImportAudioDialog({
     }
   }, [fileInfo, title, titleModifiedByUser]);
 
+  useEffect(() => {
+    if (!open) return;
+
+    let unlisten: UnlistenFn | null = null;
+    let cancelled = false;
+
+    listen<PhoneUploadReceived>('phone-upload-received', async (event) => {
+      if (cancelled) return;
+
+      const info = await validateFile(event.payload.path);
+      if (info) {
+        setTitle(event.payload.title || info.filename);
+        setTitleModifiedByUser(false);
+        toast.success('Phone upload received');
+      }
+    }).then((listener) => {
+      if (cancelled) {
+        listener();
+      } else {
+        unlisten = listener;
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [open, validateFile]);
+
   const selectedModel = useMemo((): ModelOption | undefined => {
     if (!selectedModelKey) return undefined;
     const colonIndex = selectedModelKey.indexOf(':');
@@ -184,6 +234,40 @@ export function ImportAudioDialog({
     }
   };
 
+  const handleStartPhoneUpload = async () => {
+    setPhoneUploadStarting(true);
+    try {
+      const status = await invoke<PhoneUploadServerStatus>('start_phone_upload_server_command');
+      setPhoneUploadStatus(status);
+    } catch (err: any) {
+      toast.error('Phone upload unavailable', {
+        description: typeof err === 'string' ? err : String(err),
+      });
+    } finally {
+      setPhoneUploadStarting(false);
+    }
+  };
+
+  const handleCopyPhoneUploadUrl = async () => {
+    if (!phoneUploadStatus?.upload_url) return;
+
+    try {
+      await navigator.clipboard.writeText(phoneUploadStatus.upload_url);
+      toast.success('Upload link copied');
+    } catch {
+      toast.error('Could not copy upload link');
+    }
+  };
+
+  const stopPhoneUploadServer = () => {
+    if (!phoneUploadStatus?.running) return;
+
+    invoke('stop_phone_upload_server_command').catch((err) => {
+      console.warn('Failed to stop phone upload server:', err);
+    });
+    setPhoneUploadStatus(null);
+  };
+
   const handleStartImport = async () => {
     if (!fileInfo) return;
 
@@ -201,6 +285,7 @@ export function ImportAudioDialog({
       await cancelImport();
       toast.info('Import cancelled');
     }
+    stopPhoneUploadServer();
     onOpenChange(false);
   };
 
@@ -208,6 +293,9 @@ export function ImportAudioDialog({
   const handleOpenChange = (newOpen: boolean) => {
     if (!newOpen && isProcessing) {
       return;
+    }
+    if (!newOpen) {
+      stopPhoneUploadServer();
     }
     onOpenChange(newOpen);
   };
@@ -322,6 +410,37 @@ export function ImportAudioDialog({
                     )}
                   </Button>
                   <p className="text-sm text-gray-500 mt-2">MP4, WAV, MP3, FLAC, OGG, MKV, WebM, WMA</p>
+                  <div className="mt-4 pt-4 border-t">
+                    <Button
+                      variant="outline"
+                      onClick={handleStartPhoneUpload}
+                      disabled={phoneUploadStarting}
+                    >
+                      {phoneUploadStarting ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <Smartphone className="h-4 w-4 mr-2" />
+                      )}
+                      Phone Upload
+                    </Button>
+                    {phoneUploadStatus?.upload_url && (
+                      <div className="mt-3 flex items-center gap-2">
+                        <Input
+                          value={phoneUploadStatus.upload_url}
+                          readOnly
+                          className="text-xs"
+                        />
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={handleCopyPhoneUploadUrl}
+                          aria-label="Copy phone upload link"
+                        >
+                          <Copy className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
